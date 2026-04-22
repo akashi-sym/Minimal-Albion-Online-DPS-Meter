@@ -1,3 +1,4 @@
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Serilog;
 using System;
@@ -5,6 +6,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
+using Windows.Storage.Streams;
 
 namespace AlbionDpsMeter.Services;
 
@@ -19,6 +21,12 @@ public class ImageController
     private static readonly ConcurrentDictionary<string, WeakReference<BitmapImage>> _cache = new();
     private static readonly ConcurrentDictionary<string, bool> _downloading = new();
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private readonly DispatcherQueue _dispatcherQueue;
+
+    public ImageController(DispatcherQueue dispatcherQueue)
+    {
+        _dispatcherQueue = dispatcherQueue;
+    }
 
     public async Task<BitmapImage?> GetItemImageAsync(string? uniqueName)
     {
@@ -57,19 +65,21 @@ public class ImageController
         try
         {
             var url = $"{RenderBaseUrl}{Uri.EscapeDataString(uniqueName)}?size=64&quality=1";
+            Log.Debug("Downloading item image: {Url}", url);
             var bytes = await _http.GetByteArrayAsync(url);
             await File.WriteAllBytesAsync(localPath, bytes);
 
-            var image = await LoadImageFromFileAsync(localPath);
+            var image = await LoadImageFromBytesAsync(bytes);
             if (image != null)
             {
                 _cache[uniqueName] = new WeakReference<BitmapImage>(image);
                 return image;
             }
+            Log.Warning("Failed to create BitmapImage from downloaded bytes for {Name}", uniqueName);
         }
         catch (Exception ex)
         {
-            Log.Debug(ex, "Failed to download image for {Name}", uniqueName);
+            Log.Warning(ex, "Failed to download image for {Name}", uniqueName);
         }
         finally
         {
@@ -79,18 +89,47 @@ public class ImageController
         return null;
     }
 
-    private static async Task<BitmapImage?> LoadImageFromFileAsync(string path)
+    private async Task<BitmapImage?> LoadImageFromBytesAsync(byte[] bytes)
+    {
+        var tcs = new TaskCompletionSource<BitmapImage?>();
+
+        if (!_dispatcherQueue.TryEnqueue(async () =>
+        {
+            try
+            {
+                var image = new BitmapImage();
+                using var ms = new InMemoryRandomAccessStream();
+                using var writer = new DataWriter(ms.GetOutputStreamAt(0));
+                writer.WriteBytes(bytes);
+                await writer.StoreAsync();
+                ms.Seek(0);
+                await image.SetSourceAsync(ms);
+                tcs.TrySetResult(image);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug(ex, "Failed to create BitmapImage from bytes");
+                tcs.TrySetResult(null);
+            }
+        }))
+        {
+            Log.Warning("Failed to enqueue BitmapImage creation on dispatcher");
+            return null;
+        }
+
+        return await tcs.Task;
+    }
+
+    private async Task<BitmapImage?> LoadImageFromFileAsync(string path)
     {
         try
         {
-            var image = new BitmapImage();
-            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
-            using var stream = await file.OpenReadAsync();
-            await image.SetSourceAsync(stream);
-            return image;
+            var bytes = await File.ReadAllBytesAsync(path);
+            return await LoadImageFromBytesAsync(bytes);
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Debug(ex, "Failed to load image from {Path}", path);
             return null;
         }
     }

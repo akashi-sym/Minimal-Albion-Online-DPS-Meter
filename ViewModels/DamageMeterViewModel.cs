@@ -30,9 +30,6 @@ public partial class DamageMeterViewModel : ObservableObject
     private string _statusText = "Ready";
 
     [ObservableProperty]
-    private bool _isResetBeforeCombatActive = true;
-
-    [ObservableProperty]
     private PacketProviderKind _packetProvider = PacketProviderKind.Npcap;
 
     [ObservableProperty]
@@ -46,6 +43,15 @@ public partial class DamageMeterViewModel : ObservableObject
 
     [ObservableProperty]
     private long _totalTakenDamage;
+
+    [ObservableProperty]
+    private long _totalFame;
+
+    [ObservableProperty]
+    private long _totalCombatFame;
+
+    [ObservableProperty]
+    private long _totalSilver;
 
     [ObservableProperty]
     private string _playerName = string.Empty;
@@ -64,6 +70,7 @@ public partial class DamageMeterViewModel : ObservableObject
         _dispatcherQueue = dispatcherQueue;
 
         _trackingController.CombatController.OnDamageUpdate += OnDamageDataReceived;
+        _trackingController.CombatController.OnFameOrSilverUpdate += OnFameOrSilverReceived;
         _trackingController.OnTrackingError += OnTrackingError;
         _trackingController.EntityController.OnProfileOrPartyChanged += OnProfileOrPartyChanged;
         _trackingController.OnTrackingStateChanged += state =>
@@ -74,11 +81,6 @@ public partial class DamageMeterViewModel : ObservableObject
                 StatusText = state ? "Tracking..." : "Stopped";
             });
         };
-    }
-
-    partial void OnIsResetBeforeCombatActiveChanged(bool value)
-    {
-        _trackingController.CombatController.IsResetBeforeCombatActive = value;
     }
 
     partial void OnSortTypeChanged(DamageMeterSortType value)
@@ -110,6 +112,9 @@ public partial class DamageMeterViewModel : ObservableObject
             TotalDamage = 0;
             TotalHeal = 0;
             TotalTakenDamage = 0;
+            TotalFame = 0;
+            TotalCombatFame = 0;
+            TotalSilver = 0;
             OnUiRefreshRequired?.Invoke();
         });
     }
@@ -145,6 +150,16 @@ public partial class DamageMeterViewModel : ObservableObject
     private void OnDamageDataReceived(List<KeyValuePair<Guid, PlayerGameObject>> entities)
     {
         _dispatcherQueue.TryEnqueue(() => UpdateDamageMeterUi(entities));
+    }
+
+    private void OnFameOrSilverReceived(long fame, long combatFame, long silver)
+    {
+        _dispatcherQueue.TryEnqueue(() =>
+        {
+            TotalFame = fame;
+            TotalCombatFame = combatFame;
+            TotalSilver = silver;
+        });
     }
 
     private void UpdateDamageMeterUi(List<KeyValuePair<Guid, PlayerGameObject>> entities)

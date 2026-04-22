@@ -15,7 +15,6 @@ public class CombatController
 {
     private readonly TrackingController _trackingController;
     private readonly DispatcherQueue _dispatcherQueue;
-    private bool _combatModeWasCombatOver;
     private static bool _isUiUpdateActive;
     private DateTime _lastDamageUiUpdate;
 
@@ -23,11 +22,15 @@ public class CombatController
 
     public event Action<List<KeyValuePair<Guid, PlayerGameObject>>>? OnDamageUpdate;
     public event Action<long, bool, bool>? OnChangeCombatMode;
+    public event Action<long, long, long>? OnFameOrSilverUpdate;
+
+    private long _sessionFame;
+    private long _sessionCombatFame;
+    private long _sessionSilver;
 
     // Settings - exposed for ViewModel binding
     public bool IsTrackingActive { get; set; } = true;
     public bool IsResetByMapChangeActive { get; set; }
-    public bool IsResetBeforeCombatActive { get; set; } = true;
 
     public CombatController(TrackingController trackingController, DispatcherQueue dispatcherQueue)
     {
@@ -35,8 +38,6 @@ public class CombatController
         _dispatcherQueue = dispatcherQueue;
 
         OnChangeCombatMode += AddCombatTime;
-        OnChangeCombatMode += SetLastCombatMode;
-        OnChangeCombatMode += ResetDamageMeterBeforeCombatStart;
     }
 
     #region Damage Meter methods
@@ -112,6 +113,30 @@ public class CombatController
         return Task.CompletedTask;
     }
 
+    public Task AddFame(long totalFame)
+    {
+        if (!IsTrackingActive) return Task.CompletedTask;
+        _sessionFame += totalFame;
+        OnFameOrSilverUpdate?.Invoke(_sessionFame, _sessionCombatFame, _sessionSilver);
+        return Task.CompletedTask;
+    }
+
+    public Task AddCombatFame(long combatFame)
+    {
+        if (!IsTrackingActive) return Task.CompletedTask;
+        _sessionCombatFame += combatFame;
+        OnFameOrSilverUpdate?.Invoke(_sessionFame, _sessionCombatFame, _sessionSilver);
+        return Task.CompletedTask;
+    }
+
+    public Task AddSilver(long silver)
+    {
+        if (!IsTrackingActive) return Task.CompletedTask;
+        _sessionSilver += silver;
+        OnFameOrSilverUpdate?.Invoke(_sessionFame, _sessionCombatFame, _sessionSilver);
+        return Task.CompletedTask;
+    }
+
     public void UpdateCombatMode(long objectId, bool inActiveCombat, bool inPassiveCombat)
     {
         OnChangeCombatMode?.Invoke(objectId, inActiveCombat, inPassiveCombat);
@@ -124,24 +149,6 @@ public class CombatController
         LastPlayersHealth.Clear();
     }
 
-    public void ResetDamageMeterBeforeCombatStart(long objectId, bool inActiveCombat, bool inPassiveCombat)
-    {
-        if (!_combatModeWasCombatOver) return;
-        if (!inActiveCombat && !inPassiveCombat) return;
-        if (!IsResetBeforeCombatActive) return;
-        if (!_trackingController.EntityController.IsEntityInParty(objectId)) return;
-
-        ResetDamageMeter();
-        LastPlayersHealth.Clear();
-        _combatModeWasCombatOver = false;
-    }
-
-    private void SetLastCombatMode(long objectId, bool inActiveCombat, bool inPassiveCombat)
-    {
-        if (!_trackingController.EntityController.IsEntityInParty(objectId)) return;
-        if (!inActiveCombat && !inPassiveCombat) _combatModeWasCombatOver = true;
-    }
-
     public void ResetDamageMeter()
     {
         _trackingController.EntityController.ResetEntitiesDamageTimes();
@@ -151,6 +158,11 @@ public class CombatController
         _trackingController.EntityController.ResetSpells();
         _trackingController.EntityController.ResetEntitiesHealAndOverhealed();
         _trackingController.EntityController.ResetEntitiesDamageStartTime();
+
+        _sessionFame = 0;
+        _sessionCombatFame = 0;
+        _sessionSilver = 0;
+        OnFameOrSilverUpdate?.Invoke(0, 0, 0);
     }
 
     public bool IsMaxHealthReached(long objectId, double newHealthValue)

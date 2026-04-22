@@ -37,10 +37,15 @@ public class NetworkManager
         builder.AddEventHandler(new HealthUpdatesEventHandler(trackingController));
         builder.AddEventHandler(new InCombatStateUpdateEventHandler(trackingController));
         builder.AddEventHandler(new NewCharacterEventHandler(trackingController));
+        builder.AddEventHandler(new CharacterEquipmentChangedEventHandler(trackingController));
         builder.AddEventHandler(new PartyDisbandedEventHandler(trackingController));
         builder.AddEventHandler(new PartyJoinedEventHandler(trackingController));
         builder.AddEventHandler(new PartyPlayerJoinedEventHandler(trackingController));
         builder.AddEventHandler(new PartyPlayerLeftEventHandler(trackingController));
+
+        builder.AddEventHandler(new UpdateFameEventHandler(trackingController));
+        builder.AddEventHandler(new UpdateReSpecPointsEventHandler(trackingController));
+        builder.AddEventHandler(new TakeSilverEventHandler(trackingController));
 
         // Response
         builder.AddResponseHandler(new JoinResponseHandler(trackingController));

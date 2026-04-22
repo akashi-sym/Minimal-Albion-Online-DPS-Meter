@@ -11,6 +11,7 @@ namespace AlbionDpsMeter.Services;
 public class EntityController
 {
     private readonly ConcurrentDictionary<Guid, PlayerGameObject> _knownEntities = new();
+    private readonly ConcurrentDictionary<long, CharacterEquipment> _pendingEquipment = new();
 
     public event Action? OnProfileOrPartyChanged;
 
@@ -65,7 +66,18 @@ public class EntityController
         if (gameObject.Name == "PA" && oldEntity?.Name != null)
             gameObject.Name = oldEntity.Name;
 
+        // Apply any pending equipment that arrived before the entity was created
+        if (gameObject.ObjectId != null && _pendingEquipment.TryRemove((long)gameObject.ObjectId, out var pendingEquip))
+        {
+            gameObject.CharacterEquipment = pendingEquip;
+            Log.Debug("AddEntity: applied pending equipment for objectId={ObjectId} mainHand={MainHand}",
+                gameObject.ObjectId, pendingEquip.MainHand);
+        }
+
         _knownEntities.TryAdd(gameObject.UserGuid, gameObject);
+
+        Log.Debug("AddEntity: name={Name} objectId={ObjectId} subType={SubType} mainHand={MainHand}",
+            gameObject.Name, gameObject.ObjectId, gameObject.ObjectSubType, gameObject.CharacterEquipment?.MainHand);
 
         if (gameObject.ObjectSubType == GameObjectSubType.LocalPlayer)
             OnProfileOrPartyChanged?.Invoke();
@@ -76,6 +88,24 @@ public class EntityController
 
     public KeyValuePair<Guid, PlayerGameObject> GetEntity(Guid guid)
         => _knownEntities.FirstOrDefault(x => x.Key == guid);
+
+    public void SetCharacterEquipment(long objectId, CharacterEquipment equipment)
+    {
+        var entity = GetEntity(objectId);
+        if (entity?.Value != null)
+        {
+            entity.Value.Value.CharacterEquipment = equipment;
+            Log.Debug("SetCharacterEquipment: objectId={ObjectId} name={Name} mainHand={MainHand}",
+                objectId, entity.Value.Value.Name, equipment.MainHand);
+        }
+        else
+        {
+            // Entity not yet created — cache equipment for when it arrives
+            _pendingEquipment[objectId] = equipment;
+            Log.Debug("SetCharacterEquipment: cached pending equipment for objectId={ObjectId} mainHand={MainHand}",
+                objectId, equipment.MainHand);
+        }
+    }
 
     public List<KeyValuePair<Guid, PlayerGameObject>> GetAllEntitiesWithDamageOrHealAndInParty()
     {

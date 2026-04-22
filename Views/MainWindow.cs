@@ -36,6 +36,9 @@ public sealed class MainWindow : Window
     private static readonly Color DamageColor = Color.FromArgb(0xFF, 0xFF, 0x6B, 0x6B);
     private static readonly Color HealColor = Color.FromArgb(0xFF, 0x51, 0xCF, 0x66);
     private static readonly Color TakenDamageColor = Color.FromArgb(0xFF, 0xFF, 0xD4, 0x3B);
+    private static readonly Color FameColor = Color.FromArgb(0xFF, 0xFF, 0xD7, 0x00);
+    private static readonly Color CombatFameColor = Color.FromArgb(0xFF, 0xFF, 0x9A, 0x3C);
+    private static readonly Color SilverColor = Color.FromArgb(0xFF, 0xC0, 0xC0, 0xC8);
 
     // Brushes
     private readonly SolidColorBrush _damageBrush;
@@ -51,6 +54,9 @@ public sealed class MainWindow : Window
     private readonly TextBlock _totalDamageText;
     private readonly TextBlock _totalHealText;
     private readonly TextBlock _totalTakenDamageText;
+    private readonly TextBlock _totalFameText;
+    private readonly TextBlock _totalCombatFameText;
+    private readonly TextBlock _totalSilverText;
     private readonly StackPanel _playerListPanel;
     private readonly TextBlock _statusText;
     private readonly TextBlock _errorText;
@@ -79,11 +85,14 @@ public sealed class MainWindow : Window
         _titleBar = new Grid();
         _pinIcon = new FontIcon { Glyph = "\uE718", FontSize = 13 };
         _compactIcon = new FontIcon { Glyph = "\uE740", FontSize = 13 };
-        _startIcon = new FontIcon { Glyph = "\uE768", FontSize = 11 };
-        _startText = new TextBlock { Text = "Start", FontSize = 12 };
+        _startIcon = new FontIcon { Glyph = "\uE769", FontSize = 11 };
+        _startText = new TextBlock { Text = "Pause", FontSize = 12 };
         _totalDamageText = new TextBlock { Foreground = new SolidColorBrush(DamageColor), Text = "0", FontWeight = FontWeights.SemiBold, FontSize = 13 };
         _totalHealText = new TextBlock { Foreground = new SolidColorBrush(HealColor), Text = "0", FontWeight = FontWeights.SemiBold, FontSize = 13 };
         _totalTakenDamageText = new TextBlock { Foreground = new SolidColorBrush(TakenDamageColor), Text = "0", FontWeight = FontWeights.SemiBold, FontSize = 13 };
+        _totalFameText = new TextBlock { Foreground = new SolidColorBrush(FameColor), Text = "0", FontWeight = FontWeights.SemiBold, FontSize = 13 };
+        _totalCombatFameText = new TextBlock { Foreground = new SolidColorBrush(CombatFameColor), Text = "0", FontWeight = FontWeights.SemiBold, FontSize = 13 };
+        _totalSilverText = new TextBlock { Foreground = new SolidColorBrush(SilverColor), Text = "0", FontWeight = FontWeights.SemiBold, FontSize = 13 };
         _playerListPanel = new StackPanel { Spacing = 4 };
         _statusText = new TextBlock { Opacity = 0.4, FontSize = 11, Text = "Ready" };
         _errorText = new TextBlock { Foreground = new SolidColorBrush(DamageColor), FontSize = 11 };
@@ -119,6 +128,9 @@ public sealed class MainWindow : Window
         // Subscribe to ViewModel events
         _viewModel.OnUiRefreshRequired += RefreshPlayerList;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+        // Auto-start tracking on launch
+        _viewModel.StartTrackingCommand.Execute(null);
 
         // Cleanup on close
         Closed += (_, _) => _viewModel.StopTrackingCommand.Execute(null);
@@ -257,7 +269,6 @@ public sealed class MainWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Copy
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Sort
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Spacer
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Settings
 
         // Start/Stop button
         var startPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
@@ -312,34 +323,6 @@ public sealed class MainWindow : Window
         };
         Grid.SetColumn(sortCombo, 3);
         grid.Children.Add(sortCombo);
-
-        // Settings flyout
-        var settingsBtn = CreateIconButton("\uE713", "Settings");
-        settingsBtn.Margin = new Thickness(0);
-
-        var flyoutPanel = new StackPanel { Spacing = 12, MinWidth = 250 };
-        flyoutPanel.Children.Add(new TextBlock
-        {
-            Text = "Settings",
-            FontSize = 18,
-            FontWeight = FontWeights.SemiBold
-        });
-
-        var autoResetToggle = new ToggleSwitch
-        {
-            Header = "Auto-reset before combat",
-            IsOn = _viewModel.IsResetBeforeCombatActive
-        };
-        autoResetToggle.Toggled += (_, _) => _viewModel.IsResetBeforeCombatActive = autoResetToggle.IsOn;
-        flyoutPanel.Children.Add(autoResetToggle);
-
-        settingsBtn.Flyout = new Flyout
-        {
-            Content = flyoutPanel,
-            Placement = FlyoutPlacementMode.Bottom
-        };
-        Grid.SetColumn(settingsBtn, 5);
-        grid.Children.Add(settingsBtn);
 
         return grid;
     }
@@ -412,11 +395,16 @@ public sealed class MainWindow : Window
         else
             grid.Background = new SolidColorBrush(Color.FromArgb(0x12, 0xFF, 0xFF, 0xFF));
 
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
+        // Row 0: combat stats
         var totalLabel = new TextBlock
         {
             Text = "TOTALS",
@@ -426,20 +414,45 @@ public sealed class MainWindow : Window
             Opacity = 0.4,
             CharacterSpacing = 60
         };
+        Grid.SetRow(totalLabel, 0);
         Grid.SetColumn(totalLabel, 0);
         grid.Children.Add(totalLabel);
 
         var dmgPanel = BuildTotalColumn("DMG", DamageColor, _totalDamageText);
-        Grid.SetColumn(dmgPanel, 1);
+        Grid.SetRow(dmgPanel, 0); Grid.SetColumn(dmgPanel, 1);
         grid.Children.Add(dmgPanel);
 
         var healPanel = BuildTotalColumn("HEAL", HealColor, _totalHealText);
-        Grid.SetColumn(healPanel, 2);
+        Grid.SetRow(healPanel, 0); Grid.SetColumn(healPanel, 2);
         grid.Children.Add(healPanel);
 
         var takenPanel = BuildTotalColumn("TAKEN", TakenDamageColor, _totalTakenDamageText);
-        Grid.SetColumn(takenPanel, 3);
+        Grid.SetRow(takenPanel, 0); Grid.SetColumn(takenPanel, 3);
         grid.Children.Add(takenPanel);
+
+        // Row 1: separator
+        var separator = new Border
+        {
+            Height = 1,
+            Background = new SolidColorBrush(Color.FromArgb(0x18, 0xFF, 0xFF, 0xFF)),
+            Margin = new Thickness(0, 4, 0, 2)
+        };
+        Grid.SetRow(separator, 1);
+        Grid.SetColumnSpan(separator, 4);
+        grid.Children.Add(separator);
+
+        // Row 2: fame/silver stats
+        var famePanel = BuildTotalColumn("FAME", FameColor, _totalFameText);
+        Grid.SetRow(famePanel, 2); Grid.SetColumn(famePanel, 1);
+        grid.Children.Add(famePanel);
+
+        var combatFamePanel = BuildTotalColumn("C.FAME", CombatFameColor, _totalCombatFameText);
+        Grid.SetRow(combatFamePanel, 2); Grid.SetColumn(combatFamePanel, 2);
+        grid.Children.Add(combatFamePanel);
+
+        var silverPanel = BuildTotalColumn("SILVER", SilverColor, _totalSilverText);
+        Grid.SetRow(silverPanel, 2); Grid.SetColumn(silverPanel, 3);
+        grid.Children.Add(silverPanel);
 
         return grid;
     }
@@ -601,8 +614,8 @@ public sealed class MainWindow : Window
                 _errorText.Text = _viewModel.ErrorMessage ?? string.Empty;
                 break;
             case nameof(DamageMeterViewModel.IsTrackingActive):
-                _startIcon.Glyph = _viewModel.IsTrackingActive ? "\uE71A" : "\uE768";
-                _startText.Text = _viewModel.IsTrackingActive ? "Stop" : "Start";
+                _startIcon.Glyph = _viewModel.IsTrackingActive ? "\uE769" : "\uE768";
+                _startText.Text = _viewModel.IsTrackingActive ? "Pause" : "Resume";
                 _trackingIndicator.Fill = new SolidColorBrush(_viewModel.IsTrackingActive
                     ? Color.FromArgb(0xFF, 0x51, 0xCF, 0x66)
                     : Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
@@ -615,6 +628,15 @@ public sealed class MainWindow : Window
                 break;
             case nameof(DamageMeterViewModel.TotalTakenDamage):
                 _totalTakenDamageText.Text = _viewModel.TotalTakenDamage.ToShortNumberString();
+                break;
+            case nameof(DamageMeterViewModel.TotalFame):
+                _totalFameText.Text = _viewModel.TotalFame.ToShortNumberString();
+                break;
+            case nameof(DamageMeterViewModel.TotalCombatFame):
+                _totalCombatFameText.Text = _viewModel.TotalCombatFame.ToShortNumberString();
+                break;
+            case nameof(DamageMeterViewModel.TotalSilver):
+                _totalSilverText.Text = _viewModel.TotalSilver.ToShortNumberString();
                 break;
             case nameof(DamageMeterViewModel.PlayerName):
                 _playerNameText.Text = _viewModel.PlayerName;
@@ -908,10 +930,9 @@ public sealed class MainWindow : Window
             _healFilledCol.Width = new GridLength(healPct, GridUnitType.Star);
             _healEmptyCol.Width = new GridLength(Math.Max(0.001, 100 - healPct), GridUnitType.Star);
 
-            // Load weapon icon if changed
-            if (fragment.MainHandIndex != _lastMainHandIndex && fragment.MainHandIndex > 0)
+            // Load weapon icon if changed (or if previous load failed)
+            if (fragment.MainHandIndex > 0 && (fragment.MainHandIndex != _lastMainHandIndex || _weaponIcon.Source == null))
             {
-                _lastMainHandIndex = fragment.MainHandIndex;
                 _ = LoadWeaponIconAsync(fragment.MainHandIndex);
             }
         }
@@ -923,7 +944,10 @@ public sealed class MainWindow : Window
 
             var image = await _imageController.GetItemImageAsync(uniqueName);
             if (image != null)
+            {
                 _weaponIcon.Source = image;
+                _lastMainHandIndex = mainHandIndex;
+            }
         }
     }
 
