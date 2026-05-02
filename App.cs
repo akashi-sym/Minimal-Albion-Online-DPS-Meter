@@ -1,4 +1,5 @@
 using AlbionDpsMeter.Services;
+using AlbionDpsMeter.Startup;
 using AlbionDpsMeter.ViewModels;
 using AlbionDpsMeter.Views;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,6 +19,11 @@ public class App : Application
     [STAThread]
     static void Main(string[] args)
     {
+        // Validate required dependencies (Windows App Runtime 1.7, Npcap,
+        // Npcap WinPcap-compat shim) BEFORE any WinUI / WinRT call. If any
+        // are missing, this surfaces a native Win32 dialog and exits.
+        PreLaunchValidator.ValidateOrExit();
+
         global::WinRT.ComWrappersSupport.InitializeComWrappers();
 
         Log.Logger = new LoggerConfiguration()
